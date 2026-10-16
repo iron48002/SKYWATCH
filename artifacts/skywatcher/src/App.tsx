@@ -13,7 +13,7 @@ type Filters = { minAltitude: number; direction: string; maxMagnitude: number; e
 const equipmentLimits: Record<string, number> = { 'Naked Eye': 4, Binoculars: 6, Telescope: 14 };
 const defaultFilters: Filters = { minAltitude: 15, direction: 'Any direction', maxMagnitude: 6, equipment: 'Binoculars' };
 const routes = [
-  { href: '/', label: 'Tonight', icon: Orbit },
+  { href: '/', label: 'Live sky', icon: Orbit },
   { href: '/solar-system', label: 'Solar system', icon: Sparkles },
   { href: '/deep-sky', label: 'Deep sky', icon: Telescope },
   { href: '/constellations', label: 'Constellations', icon: Compass },
@@ -211,7 +211,7 @@ function Overview({ snapshot, isLoading, filters }: { snapshot?: import('@worksp
   const rising = snapshot?.solar.filter(item => item.isUp).length ?? 0;
   const objects = snapshot ? filterDeepSky(snapshot.messier, filters, true, '') : [];
   return <div className="fade-up">
-    <PageHeading kicker="Live observing report" title="Tonight’s sky" sub={snapshot ? `A location-aware view from ${snapshot.location.name}. Positions calculated for ${snapshot.location.latitude.toFixed(3)}°, ${snapshot.location.longitude.toFixed(3)}°.` : 'Your observatory view, calibrated to the observer location.'} action={<div className="flex items-center gap-2"><span className="hidden text-[10px] text-slate-500 sm:inline">AUTO-REFRESH 60S</span><span className="h-1.5 w-1.5 rounded-full bg-cyan-200 shadow-[0_0_10px_rgba(103,223,233,.8)]" /></div>} />
+    <PageHeading kicker="Live observing report" title="Sky right now" sub={snapshot ? `A live, location-aware view from ${snapshot.location.name}. Positions are calculated for ${snapshot.location.latitude.toFixed(3)}°, ${snapshot.location.longitude.toFixed(3)}° and refresh every minute.` : 'Your observatory view, calibrated to the observer location.'} action={<div className="flex items-center gap-2"><span className="hidden text-[10px] text-slate-500 sm:inline">LIVE · REFRESHES EVERY 60S</span><span className="h-1.5 w-1.5 rounded-full bg-cyan-200 shadow-[0_0_10px_rgba(103,223,233,.8)]" /></div>} />
     <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3"><Metric label="Solar system above horizon" value={snapshot ? `${rising} / ${snapshot.counts.solarTotal}` : '—'} detail="Sun, Moon & planets currently up" /><Metric label="Messier objects visible" value={snapshot ? `${snapshot.counts.deepSkyVisible}` : '—'} detail={`of ${snapshot?.counts.deepSkyTotal ?? '—'} catalogued objects`} accent="violet" /><Metric label="Constellations in view" value={snapshot?.counts.constellationsVisible ?? '—'} detail="With at least one visible star" accent="gold" /></div>
     <div className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
       <section className="glass overflow-hidden rounded-2xl">
