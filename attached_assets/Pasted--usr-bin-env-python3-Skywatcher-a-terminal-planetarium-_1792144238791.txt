@@ -1,0 +1,885 @@
+#!/usr/bin/env python3
+"""Skywatcher: a terminal planetarium for planets, Messier objects and constellations.
+
+Given a location (city name or "lat, lon") the program reports what is above the
+horizon right now, with rise, set and transit times for every object.
+
+Usage:
+    skywatcher "Bangalore, India"        interactive menus for that place
+    skywatcher 12.97,77.59 --once        print what is above the horizon and exit
+    skywatcher                           prompt for a location
+
+Install requirements with:
+    pip install skyfield geopy timezonefinder numpy pandas
+
+Large data files (ephemeris, star catalogue) are downloaded once into
+~/.skywatcher and reused afterwards, so later runs work offline when the
+location is given as coordinates.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import re
+import sys
+from dataclasses import dataclass
+from datetime import timezone, tzinfo
+from pathlib import Path
+from typing import Any, Optional, Sequence
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+try:
+    import numpy as np
+    import pandas as pd
+    from geopy.exc import GeopyError
+    from geopy.geocoders import Nominatim
+    from skyfield import almanac
+    from skyfield.api import (
+        Loader,
+        Star,
+        load_constellation_map,
+        load_constellation_names,
+        position_of_radec,
+        wgs84,
+    )
+    from skyfield.data import hipparcos
+    from skyfield.timelib import Time
+    from timezonefinder import TimezoneFinder
+except ImportError as exc:  # pragma: no cover - depends on the environment
+    sys.exit(
+        f"Missing required library: {exc.name}\n"
+        "Install everything with:\n"
+        "    pip install skyfield geopy timezonefinder numpy pandas"
+    )
+
+# --------------------------------------------------------------------------- #
+# Configuration
+# --------------------------------------------------------------------------- #
+
+__version__ = "1.1.0"
+logger = logging.getLogger("skywatcher")
+
+DATA_DIR = Path.home() / ".skywatcher"
+EPHEMERIS_FILE = "de421.bsp"
+GEOCODER_USER_AGENT = "skywatch"
+GEOCODER_TIMEOUT_S = 10
+
+CONSTELLATION_MAG_LIMIT = 5.0  # only count stars this bright or brighter (try 3.5 for city skies)
+CONSTELLATION_MIN_ALT = 10.0   # a star only counts as "up" above this altitude (degrees)
+
+COMPASS_POINTS = (
+    "North", "North-East", "East", "South-East",
+    "South", "South-West", "West", "North-West",
+)
+
+# (display name, ephemeris key, kind, typical magnitude, angular radius in degrees)
+SOLAR_SYSTEM = (
+    ("Sun", "sun", "Sun", -26.7, 0.25),
+    ("Moon", "moon", "Moon", -12.7, 0.25),
+    ("Mercury", "mercury", "Planet", 0.0, 0.0),
+    ("Venus", "venus", "Planet", -4.0, 0.0),
+    ("Mars", "mars", "Planet", 0.7, 0.0),
+    ("Jupiter", "jupiter barycenter", "Planet", -2.2, 0.0),
+    ("Saturn", "saturn barycenter", "Planet", 0.7, 0.0),
+    ("Uranus", "uranus barycenter", "Planet", 5.7, 0.0),
+    ("Neptune", "neptune barycenter", "Planet", 7.8, 0.0),
+)
+
+_GC, _OC, _NEB, _PN = "Globular Cluster", "Open Cluster", "Nebula", "Planetary Nebula"
+_GAL, _SNR, _DBL, _AST = "Galaxy", "Supernova Remnant", "Double Star", "Asterism"
+
+# Full Messier catalogue (J2000): (name, RA hours, Dec degrees, magnitude, type).
+# M102 is omitted because it duplicates M101.
+MESSIER_CATALOGUE: tuple[tuple[str, float, float, float, str], ...] = (
+    ("M1 (Crab Nebula)", 5.5750, 22.0167, 8.2, _SNR),
+    ("M2", 21.5583, 0.8167, 6.5, _GC),
+    ("M3", 13.7033, 28.3833, 6.4, _GC),
+    ("M4", 16.3933, -26.5333, 5.9, _GC),
+    ("M5", 15.3100, 2.0833, 5.8, _GC),
+    ("M6 (Butterfly Cluster)", 17.6683, -32.2167, 4.2, _OC),
+    ("M7", 17.8983, -34.8167, 3.3, _OC),
+    ("M8 (Lagoon Nebula)", 18.0633, -24.3833, 6.8, _NEB),
+    ("M9", 17.3200, -18.5167, 7.9, _GC),
+    ("M10", 16.9517, -4.1000, 6.6, _GC),
+    ("M11 (Wild Duck Cluster)", 18.8517, -6.2667, 5.8, _OC),
+    ("M12", 16.7867, -1.9500, 6.6, _GC),
+    ("M13 (Great Hercules Cluster)", 16.6950, 36.4667, 5.9, _GC),
+    ("M14", 17.6267, -3.2500, 7.6, _GC),
+    ("M15", 21.5000, 12.1667, 6.4, _GC),
+    ("M16 (Eagle Nebula)", 18.3133, -13.7833, 6.4, _NEB),
+    ("M17 (Omega Nebula)", 18.3467, -16.1833, 7.5, _NEB),
+    ("M18", 18.3317, -17.1333, 6.9, _OC),
+    ("M19", 17.0433, -26.2667, 7.2, _GC),
+    ("M20 (Trifid Nebula)", 18.0433, -23.0333, 9.0, _NEB),
+    ("M21", 18.0767, -22.5000, 5.9, _OC),
+    ("M22", 18.6067, -23.9000, 5.1, _GC),
+    ("M23", 17.9467, -19.0167, 5.5, _OC),
+    ("M24 (Sagittarius Star Cloud)", 18.2817, -18.4833, 4.6, _OC),
+    ("M25", 18.5267, -19.2500, 4.6, _OC),
+    ("M26", 18.7533, -9.4000, 8.0, _OC),
+    ("M27 (Dumbbell Nebula)", 19.9933, 22.7167, 7.6, _PN),
+    ("M28", 18.4083, -24.8667, 6.9, _GC),
+    ("M29", 20.3983, 38.5333, 6.6, _OC),
+    ("M30", 21.6733, -23.1833, 7.5, _GC),
+    ("M31 (Andromeda Galaxy)", 0.7117, 41.2667, 4.8, _GAL),
+    ("M32", 0.7117, 40.8667, 8.7, _GAL),
+    ("M33 (Triangulum Galaxy)", 1.5650, 30.6500, 6.3, _GAL),
+    ("M34", 2.7000, 42.7833, 5.5, _OC),
+    ("M35", 6.1483, 24.3333, 5.3, _OC),
+    ("M36", 5.6017, 34.1333, 6.0, _OC),
+    ("M37", 5.8733, 32.5500, 5.6, _OC),
+    ("M38", 5.4783, 35.8333, 6.4, _OC),
+    ("M39", 21.5367, 48.4333, 4.6, _OC),
+    ("M40", 12.3733, 58.0833, 9.1, _DBL),
+    ("M41", 6.7833, -20.7333, 4.6, _OC),
+    ("M42 (Orion Nebula)", 5.5900, -5.4500, 2.9, _NEB),
+    ("M43 (De Mairan's Nebula)", 5.5933, -5.2667, 6.9, _NEB),
+    ("M44 (Beehive Cluster)", 8.6683, 19.9833, 3.1, _OC),
+    ("M45 (Pleiades)", 3.7833, 24.1167, 1.2, _OC),
+    ("M46", 7.6967, -14.8167, 6.1, _OC),
+    ("M47", 7.6100, -14.5000, 4.5, _OC),
+    ("M48", 8.2300, -5.8000, 5.8, _OC),
+    ("M49", 12.4967, 8.0000, 8.4, _GAL),
+    ("M50", 7.0533, -8.3333, 5.9, _OC),
+    ("M51 (Whirlpool Galaxy)", 13.4983, 47.2000, 8.4, _GAL),
+    ("M52", 23.4033, 61.5833, 6.9, _OC),
+    ("M53", 13.2150, 18.1667, 7.7, _GC),
+    ("M54", 18.9183, -30.4833, 7.7, _GC),
+    ("M55", 19.6667, -30.9667, 7.0, _GC),
+    ("M56", 19.2767, 30.1833, 8.3, _GC),
+    ("M57 (Ring Nebula)", 18.8933, 33.0333, 9.3, _PN),
+    ("M58", 12.6283, 11.8167, 9.8, _GAL),
+    ("M59", 12.7000, 11.6500, 9.8, _GAL),
+    ("M60", 12.7283, 11.5500, 8.8, _GAL),
+    ("M61", 12.3650, 4.4667, 9.7, _GAL),
+    ("M62", 17.0200, -30.1167, 6.6, _GC),
+    ("M63 (Sunflower Galaxy)", 13.2633, 42.0333, 8.6, _GAL),
+    ("M64 (Black Eye Galaxy)", 12.9450, 21.6833, 8.5, _GAL),
+    ("M65 (Leo Triplet)", 11.3150, 13.0833, 9.3, _GAL),
+    ("M66 (Leo Triplet)", 11.3367, 12.9833, 9.0, _GAL),
+    ("M67", 8.8400, 11.8167, 6.9, _OC),
+    ("M68", 12.6583, -26.7500, 8.2, _GC),
+    ("M69", 18.5233, -32.3500, 7.7, _GC),
+    ("M70", 18.7200, -32.3000, 8.1, _GC),
+    ("M71", 19.8967, 18.7833, 8.3, _GC),
+    ("M72", 20.8917, -12.5333, 9.4, _GC),
+    ("M73", 20.9817, -12.6333, 9.0, _AST),
+    ("M74 (Phantom Galaxy)", 1.6117, 15.7833, 9.2, _GAL),
+    ("M75", 20.1017, -21.9167, 8.6, _GC),
+    ("M76 (Little Dumbbell Nebula)", 1.7067, 51.5667, 12.2, _PN),
+    ("M77", 2.7117, 0.0167, 8.9, _GAL),
+    ("M78", 5.7783, 0.0500, 10.5, _NEB),
+    ("M79", 5.4083, -24.5500, 8.4, _GC),
+    ("M80", 16.2833, -22.9833, 7.2, _GC),
+    ("M81 (Bode's Galaxy)", 9.9267, 69.0667, 6.9, _GAL),
+    ("M82 (Cigar Galaxy)", 9.9300, 69.6833, 8.4, _GAL),
+    ("M83 (Southern Pinwheel Galaxy)", 13.6167, -29.8667, 8.2, _GAL),
+    ("M84", 12.4183, 12.8833, 9.3, _GAL),
+    ("M85", 12.4233, 18.1833, 9.3, _GAL),
+    ("M86", 12.4367, 12.9500, 9.2, _GAL),
+    ("M87", 12.5133, 12.4000, 8.6, _GAL),
+    ("M88", 12.5333, 14.4167, 9.5, _GAL),
+    ("M89", 12.5950, 12.5500, 9.8, _GAL),
+    ("M90", 12.6133, 13.1667, 9.5, _GAL),
+    ("M91", 12.5900, 14.5000, 10.2, _GAL),
+    ("M92", 17.2850, 43.1333, 6.5, _GC),
+    ("M93", 7.7433, -23.8667, 6.2, _OC),
+    ("M94", 12.8483, 41.1167, 8.2, _GAL),
+    ("M95", 10.7333, 11.7000, 9.7, _GAL),
+    ("M96", 10.7800, 11.8167, 9.1, _GAL),
+    ("M97 (Owl Nebula)", 11.2467, 55.0167, 12.0, _PN),
+    ("M98", 12.2300, 14.9000, 10.1, _GAL),
+    ("M99", 12.3133, 14.4167, 9.8, _GAL),
+    ("M100", 12.3817, 15.8167, 9.4, _GAL),
+    ("M101 (Pinwheel Galaxy)", 14.0533, 54.3500, 7.7, _GAL),
+    ("M103", 1.5533, 60.7000, 7.4, _OC),
+    ("M104 (Sombrero Galaxy)", 12.6667, -11.6167, 8.3, _GAL),
+    ("M105", 10.7967, 12.5833, 9.2, _GAL),
+    ("M106", 12.3167, 47.3000, 8.3, _GAL),
+    ("M107", 16.5417, -13.0500, 8.1, _GC),
+    ("M108", 11.1917, 55.6667, 10.1, _GAL),
+    ("M109", 11.9600, 53.3833, 9.8, _GAL),
+    ("M110", 0.6733, 41.6833, 9.4, _GAL),
+)
+
+
+# --------------------------------------------------------------------------- #
+# Data model
+# --------------------------------------------------------------------------- #
+
+class SkywatcherError(Exception):
+    """An error whose message is safe and helpful to show directly to the user."""
+
+
+@dataclass(frozen=True)
+class Location:
+    """An observing site."""
+
+    name: str
+    lat: float
+    lon: float
+    tz: tzinfo
+
+
+@dataclass(frozen=True)
+class SkyObject:
+    """Something that can be observed: a solar system body or a deep-sky object."""
+
+    name: str
+    kind: str
+    magnitude: float
+    target: Any  # a skyfield ephemeris body or Star
+    radius_degrees: float = 0.0
+    magnitude_is_approximate: bool = False
+
+
+@dataclass(frozen=True)
+class Position:
+    """Where an object is in the local sky at one instant."""
+
+    obj: SkyObject
+    alt: float
+    az: float
+
+    @property
+    def is_up(self) -> bool:
+        """Return True when the object is above the horizon."""
+        return self.alt > 0
+
+    @property
+    def compass(self) -> str:
+        """Return the compass direction of the object."""
+        return az_to_compass(self.az)
+
+    def summary(self, name_width: int = 0, kind_width: int = 0) -> str:
+        """Return one column-aligned line for list views."""
+        status = "Up" if self.is_up else "Down"
+        return (
+            f"{self.obj.name:<{name_width}}  {self.obj.kind:<{kind_width}}  {status:<6}  "
+            f"Alt {self.alt:>5.1f}° | Az {self.az:>5.1f}° ({self.compass})"
+        )
+
+
+@dataclass(frozen=True)
+class SkySnapshot:
+    """Positions of every catalogued object at a single moment."""
+
+    time: Time
+    solar: list[Position]
+    deep_sky: list[Position]
+
+    @property
+    def everything(self) -> list[Position]:
+        """Return solar system objects followed by deep-sky objects."""
+        return self.solar + self.deep_sky
+
+
+@dataclass(frozen=True)
+class RiseSetTransit:
+    """Rise, set and transit information for the next 24 hours."""
+
+    rise: Optional[Time]
+    set: Optional[Time]
+    transit: Optional[Time]
+    transit_alt: Optional[float]
+
+
+@dataclass(frozen=True)
+class StarView:
+    """A single catalogue star as seen from the observer."""
+
+    hip: int
+    magnitude: float
+    alt: float
+    az: float
+
+
+@dataclass(frozen=True)
+class ConstellationView:
+    """A constellation with the stars of it currently above the altitude cut-off."""
+
+    name: str
+    stars: list[StarView]
+    total: int
+
+
+# --------------------------------------------------------------------------- #
+# Location handling
+# --------------------------------------------------------------------------- #
+
+_COORD_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
+
+
+def az_to_compass(az: float) -> str:
+    """Convert an azimuth in degrees to one of eight compass directions."""
+    return COMPASS_POINTS[int((az + 22.5) // 45) % 8]
+
+
+def parse_coordinates(text: str) -> Optional[tuple[float, float]]:
+    """Parse "lat, lon" text.
+
+    Returns None when the text is not coordinates. Raises SkywatcherError when
+    it looks like coordinates but is out of range.
+    """
+    match = _COORD_RE.match(text)
+    if match is None:
+        return None
+    lat, lon = float(match[1]), float(match[2])
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise SkywatcherError(
+            "Coordinates out of range: latitude must be -90 to 90 and longitude -180 to 180."
+        )
+    return lat, lon
+
+
+def find_timezone(lat: float, lon: float) -> tzinfo:
+    """Return the local time zone for a coordinate, falling back to UTC with a warning."""
+    try:
+        key = TimezoneFinder().timezone_at(lat=lat, lng=lon)
+        if key:
+            return ZoneInfo(key)
+    except (ZoneInfoNotFoundError, ValueError):
+        pass
+    logger.warning("Could not determine the local time zone (try 'pip install tzdata'). Showing UTC.")
+    return timezone.utc
+
+
+def resolve_location(text: str) -> Location:
+    """Turn a city name or "lat, lon" string into a Location.
+
+    Raises:
+        SkywatcherError: if the text is empty, invalid or cannot be geocoded.
+    """
+    text = text.strip()
+    if not text:
+        raise SkywatcherError("Please enter a city name or coordinates such as '12.97, 77.59'.")
+
+    coords = parse_coordinates(text)
+    if coords is not None:
+        lat, lon = coords
+        name = f"{lat:.4f}, {lon:.4f}"
+    else:
+        try:
+            place = Nominatim(user_agent=GEOCODER_USER_AGENT, timeout=GEOCODER_TIMEOUT_S).geocode(text)
+        except GeopyError as exc:
+            raise SkywatcherError(
+                "Could not reach the geocoding service (are you offline?). "
+                "Enter coordinates instead, for example '12.97, 77.59'."
+            ) from exc
+        if place is None:
+            raise SkywatcherError(
+                f"Location '{text}' not found. Try a more specific name (e.g. 'Bangalore, India')."
+            )
+        lat, lon, name = place.latitude, place.longitude, text
+    return Location(name=name, lat=lat, lon=lon, tz=find_timezone(lat, lon))
+
+
+# --------------------------------------------------------------------------- #
+# Astronomy engine
+# --------------------------------------------------------------------------- #
+
+class SkyEngine:
+    """All astronomical calculations for one observing site.
+
+    Cheap data (current positions) is computed on demand with vectorised calls.
+    Expensive data (rise/set/transit search and the Hipparcos catalogue) is
+    computed lazily and cached.
+    """
+
+    def __init__(self, location: Location) -> None:
+        """Load the ephemeris and build the object catalogues."""
+        self.location = location
+        self._loader = Loader(str(DATA_DIR))
+        self.ts = self._loader.timescale()
+        self.eph = self._load_ephemeris()
+        self.observer = wgs84.latlon(location.lat, location.lon)
+        self._viewer = self.eph["earth"] + self.observer
+
+        self.solar_system = [
+            SkyObject(name, kind, mag, self.eph[key], radius, magnitude_is_approximate=True)
+            for name, key, kind, mag, radius in SOLAR_SYSTEM
+        ]
+        self.deep_sky = [
+            SkyObject(name, kind, mag, Star(ra_hours=ra, dec_degrees=dec))
+            for name, ra, dec, mag, kind in MESSIER_CATALOGUE
+        ]
+        self._dso_array = Star(
+            ra_hours=np.array([row[1] for row in MESSIER_CATALOGUE]),
+            dec_degrees=np.array([row[2] for row in MESSIER_CATALOGUE]),
+        )
+
+        self._events_cache: dict[tuple[str, float], RiseSetTransit] = {}
+        self._bright_stars: Optional[Any] = None  # pandas DataFrame
+        self._bright_star_array: Optional[Any] = None  # skyfield Star
+
+    def _load_ephemeris(self) -> Any:
+        """Load the planetary ephemeris, downloading it on first use."""
+        try:
+            return self._loader(EPHEMERIS_FILE)
+        except (OSError, ValueError) as exc:
+            raise SkywatcherError(
+                f"Could not load '{EPHEMERIS_FILE}' (about 17 MB). The first run needs an "
+                f"internet connection to download it into {DATA_DIR}. Details: {exc}"
+            ) from exc
+
+    # -- current positions -------------------------------------------------- #
+
+    def now(self) -> Time:
+        """Return the current time as a skyfield Time."""
+        return self.ts.now()
+
+    def snapshot(self, t: Optional[Time] = None) -> SkySnapshot:
+        """Compute positions for every catalogued object at time t (default: now)."""
+        t = t if t is not None else self.now()
+        at = self._viewer.at(t)
+
+        solar = []
+        for obj in self.solar_system:
+            alt, az, _ = at.observe(obj.target).apparent().altaz()
+            solar.append(Position(obj, float(alt.degrees), float(az.degrees)))
+
+        alts, azs, _ = at.observe(self._dso_array).apparent().altaz()
+        deep_sky = [
+            Position(obj, float(alt), float(az))
+            for obj, alt, az in zip(self.deep_sky, alts.degrees, azs.degrees)
+        ]
+        return SkySnapshot(time=t, solar=solar, deep_sky=deep_sky)
+
+    # -- rise, set and transit (lazy + cached) ----------------------------- #
+
+    def events(self, obj: SkyObject, t: Time) -> RiseSetTransit:
+        """Return rise, set and transit for the 24 hours after t (cached per object and time)."""
+        key = (obj.name, float(t.tt))
+        cached = self._events_cache.get(key)
+        if cached is not None:
+            return cached
+
+        end = self.ts.tt_jd(t.tt + 1.0)
+        rs_func = almanac.risings_and_settings(
+            self.eph, obj.target, self.observer, radius_degrees=obj.radius_degrees
+        )
+        times, kinds = almanac.find_discrete(t, end, rs_func)
+        rise = next((ti for ti, k in zip(times, kinds) if k == 1), None)
+        set_ = next((ti for ti, k in zip(times, kinds) if k == 0), None)
+
+        tr_func = almanac.meridian_transits(self.eph, obj.target, self.observer)
+        tr_times, tr_kinds = almanac.find_discrete(t, end, tr_func)
+        transit = next((ti for ti, k in zip(tr_times, tr_kinds) if k == 1), None)
+        transit_alt = None
+        if transit is not None:
+            alt, _, _ = self._viewer.at(transit).observe(obj.target).apparent().altaz()
+            transit_alt = float(alt.degrees)
+
+        result = RiseSetTransit(rise, set_, transit, transit_alt)
+        self._events_cache[key] = result
+        return result
+
+    # -- constellations (lazy) ---------------------------------------------- #
+
+    @property
+    def catalogue_loaded(self) -> bool:
+        """Return True once the bright-star catalogue is in memory."""
+        return self._bright_stars is not None
+
+    def _bright_star_cache_path(self) -> Path:
+        """Return the path of the processed star cache for the current magnitude limit."""
+        return DATA_DIR / f"bright_stars_mag{CONSTELLATION_MAG_LIMIT:g}.csv"
+
+    def _build_bright_stars(self) -> Any:
+        """Download and process Hipparcos into a small table of bright stars."""
+        try:
+            with self._loader.open(hipparcos.URL) as handle:
+                df = hipparcos.load_dataframe(handle)
+        except (OSError, ValueError) as exc:
+            raise SkywatcherError(
+                "Could not load the Hipparcos star catalogue (about 15 MB). The first use needs "
+                f"an internet connection. Details: {exc}"
+            ) from exc
+
+        df = df[df["magnitude"] <= CONSTELLATION_MAG_LIMIT]
+        df = df.dropna(subset=["ra_hours", "dec_degrees"])[["magnitude", "ra_hours", "dec_degrees"]].copy()
+
+        constellation_at = load_constellation_map()
+        names = dict(load_constellation_names())
+
+        def name_of(ra: float, dec: float) -> str:
+            code = constellation_at(position_of_radec(ra, dec))
+            return names.get(code, code)
+
+        df["constellation"] = [name_of(ra, dec) for ra, dec in zip(df["ra_hours"], df["dec_degrees"])]
+        return df
+
+    def _ensure_bright_stars(self) -> None:
+        """Load the bright-star table from the local cache or build it once."""
+        if self._bright_stars is not None:
+            return
+
+        cache = self._bright_star_cache_path()
+        df = None
+        if cache.exists():
+            try:
+                candidate = pd.read_csv(cache, index_col=0)
+                if {"magnitude", "ra_hours", "dec_degrees", "constellation"} <= set(candidate.columns):
+                    df = candidate
+            except (OSError, ValueError) as exc:
+                logger.debug("Ignoring unreadable star cache: %s", exc)
+                df = None
+
+        if df is None:
+            df = self._build_bright_stars()
+            try:
+                DATA_DIR.mkdir(parents=True, exist_ok=True)
+                df.to_csv(cache)
+            except OSError as exc:
+                logger.debug("Could not write star cache: %s", exc)
+
+        self._bright_stars = df
+        # Proper motion is ignored: it is far below the precision this tool needs.
+        self._bright_star_array = Star(
+            ra_hours=df["ra_hours"].to_numpy(), dec_degrees=df["dec_degrees"].to_numpy()
+        )
+
+    def constellations_up(self, t: Time) -> list[ConstellationView]:
+        """Return constellations with stars above the altitude cut-off, best placed first."""
+        self._ensure_bright_stars()
+        alts, azs, _ = self._viewer.at(t).observe(self._bright_star_array).apparent().altaz()
+        df = self._bright_stars.assign(alt=alts.degrees, az=azs.degrees)
+
+        views: list[ConstellationView] = []
+        for name, group in df.groupby("constellation"):
+            up = group[group["alt"] >= CONSTELLATION_MIN_ALT].sort_values("magnitude")
+            if up.empty:
+                continue
+            stars = [
+                StarView(int(hip), float(mag), float(alt), float(az))
+                for hip, mag, alt, az in zip(up.index, up["magnitude"], up["alt"], up["az"])
+            ]
+            views.append(ConstellationView(str(name), stars, len(group)))
+
+        views.sort(key=lambda v: (len(v.stars) / v.total, len(v.stars)), reverse=True)
+        return views
+
+
+# --------------------------------------------------------------------------- #
+# Terminal helpers
+# --------------------------------------------------------------------------- #
+
+def choose(prompt: str, max_value: int, allow_back: bool = True) -> int:
+    """Ask for a number from 1 to max_value, re-prompting until valid.
+
+    When allow_back is True an empty answer or 0 returns 0.
+    """
+    while True:
+        raw = input(prompt).strip()
+        if allow_back and raw in ("", "0"):
+            return 0
+        if raw.isdigit() and 1 <= int(raw) <= max_value:
+            return int(raw)
+        low = 0 if allow_back else 1
+        print(f"  Please enter a number from {low} to {max_value}.")
+
+
+def ask_float(prompt: str, default: float, low: float, high: float) -> float:
+    """Ask for a number in [low, high], using default on an empty answer."""
+    while True:
+        raw = input(prompt).strip()
+        if not raw:
+            return default
+        try:
+            value = float(raw)
+        except ValueError:
+            print("  That is not a number. Try something like 30.")
+            continue
+        if low <= value <= high:
+            return value
+        print(f"  Please enter a value between {low:g} and {high:g}.")
+
+
+def format_time(t: Optional[Time], tz: tzinfo) -> str:
+    """Format a skyfield Time in the local time zone, or explain that it is absent."""
+    if t is None:
+        return "none in the next 24 h"
+    return t.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+# --------------------------------------------------------------------------- #
+# Application (menus)
+# --------------------------------------------------------------------------- #
+
+class SkyApp:
+    """The interactive menu system."""
+
+    def __init__(self, engine: SkyEngine) -> None:
+        """Take a ready SkyEngine and compute the first snapshot."""
+        self.engine = engine
+        self.snapshot = engine.snapshot()
+
+    # -- shared views --------------------------------------------------------- #
+
+    def show_details(self, pos: Position) -> None:
+        """Print full details for one object."""
+        obj, tz = pos.obj, self.engine.location.tz
+        print(f"\n--- {obj.name} ({obj.kind}) ---")
+        print(f"Position: Alt {pos.alt:.1f}° | Az {pos.az:.1f}° ({pos.compass})")
+        approx = "~" if obj.magnitude_is_approximate else ""
+        print(f"Magnitude: {approx}{obj.magnitude:.2f}")
+
+        try:
+            events = self.engine.events(obj, self.snapshot.time)
+        except Exception as exc:  # skyfield can raise varied errors on edge geometries
+            logger.debug("Rise/set calculation failed for %s", obj.name, exc_info=True)
+            print(f"Could not compute rise and set times: {exc}")
+            return
+
+        if pos.is_up:
+            print(f"Status: Currently above horizon. Sets at: {format_time(events.set, tz)}")
+        else:
+            print(f"Status: Below horizon. Rises at: {format_time(events.rise, tz)}")
+        if events.transit is not None and events.transit_alt is not None:
+            print(f"Peak Transit: {format_time(events.transit, tz)} at altitude {events.transit_alt:.1f}°")
+
+    def pick_and_show(self, positions: Sequence[Position], title: str) -> None:
+        """List positions numerically and show details for the one the user picks."""
+        if not positions:
+            print("\nNo objects match right now.")
+            return
+        self._print_table(positions, title)
+        selection = choose("\nSelect object for details (0 to go back): ", len(positions))
+        if selection:
+            self.show_details(positions[selection - 1])
+
+    @staticmethod
+    def _print_table(positions: Sequence[Position], title: str) -> None:
+        """Print positions as a numbered table with aligned columns."""
+        name_w = max(len("Object"), *(len(p.obj.name) for p in positions))
+        kind_w = max(len("Type"), *(len(p.obj.kind) for p in positions))
+        print(f"\n{title} ({len(positions)})")
+        print(f"  {'#':>3}  {'Object':<{name_w}}  {'Type':<{kind_w}}  {'Status':<6}  Position")
+        print("  " + "-" * (3 + name_w + kind_w + 6 + 40))
+        for i, pos in enumerate(positions, start=1):
+            print(f"  {i:>3}  {pos.summary(name_w, kind_w)}")
+
+    def report(self) -> None:
+        """Print every object above the horizon (highest first) without prompting."""
+        loc = self.engine.location
+        print(f"Location : {loc.name}")
+        print(f"Time     : {format_time(self.snapshot.time, loc.tz)}")
+        visible = sorted((p for p in self.snapshot.everything if p.is_up), key=lambda p: p.alt, reverse=True)
+        if not visible:
+            print("\nNothing in the catalogue is above the horizon right now.")
+            return
+        self._print_table(visible, "Above the horizon")
+
+    # -- menus ---------------------------------------------------------------- #
+
+    def run(self) -> None:
+        """Run the main dashboard loop until the user exits."""
+        actions = {
+            1: self.solar_system_menu,
+            2: self.deep_sky_menu,
+            3: self.constellation_menu,
+            4: self.filter_menu,
+            5: self.refresh,
+        }
+        while True:
+            self._print_dashboard()
+            choice = choose("\nSelect menu option (1-6): ", 6, allow_back=False)
+            if choice == 6:
+                print("Clear skies and happy observing!")
+                return
+            try:
+                actions[choice]()
+            except SkywatcherError as exc:
+                print(f"\nError: {exc}")
+
+    def _print_dashboard(self) -> None:
+        """Print the main menu with live counts."""
+        snap, loc = self.snapshot, self.engine.location
+        solar_up = sum(p.is_up for p in snap.solar)
+        dso_up = sum(p.is_up for p in snap.deep_sky)
+        print("\n" + "=" * 60)
+        print(f"SKYWATCHER {__version__}")
+        print(f"Location : {loc.name}")
+        print(f"Time     : {format_time(snap.time, loc.tz)}")
+        print("=" * 60)
+        print(f"Sun/Moon/Planets above horizon : {solar_up}/{len(snap.solar)}")
+        print(f"Messier objects above horizon  : {dso_up}/{len(snap.deep_sky)}")
+        print("-" * 60)
+        print("  1. View All Solar System Objects")
+        print("  2. Deep Sky Objects (visible now + search)")
+        print("  3. Constellations Visible Now")
+        print("  4. Advanced Smart Filters (Altitude, Direction, Equipment)")
+        print("  5. Refresh to Current Time")
+        print("  6. Exit")
+
+    def refresh(self) -> None:
+        """Recompute every position for the current moment."""
+        self.snapshot = self.engine.snapshot()
+        print("\nPositions updated.")
+
+    def solar_system_menu(self) -> None:
+        """List the Sun, Moon and planets."""
+        self.pick_and_show(self.snapshot.solar, "Solar System")
+
+    def deep_sky_menu(self) -> None:
+        """Show the deep-sky submenu."""
+        while True:
+            visible = sorted(
+                (p for p in self.snapshot.deep_sky if p.is_up), key=lambda p: p.alt, reverse=True
+            )
+            print("\n=== Deep Sky Objects (Messier Catalog) ===")
+            print(f"  1. Visible right now ({len(visible)} objects)")
+            print("  2. Search for an object")
+            print("  0. Go Back")
+            choice = choose("\nSelect option: ", 2)
+            if choice == 0:
+                return
+            if choice == 1:
+                self.pick_and_show(visible, "Visible deep sky objects (highest first)")
+            else:
+                self._search_deep_sky()
+
+    def _search_deep_sky(self) -> None:
+        """Search Messier objects by number, name or type."""
+        query = input("\nSearch by name, Messier number or type (e.g. M31, andromeda, galaxy): ").strip().lower()
+        if not query:
+            return
+        digits = query.lstrip("m")
+        if digits.isdigit():
+            wanted = f"m{digits}"  # exact match, so "31" finds M31 only
+            matches = [p for p in self.snapshot.deep_sky if p.obj.name.lower().split()[0] == wanted]
+        else:
+            matches = [
+                p for p in self.snapshot.deep_sky
+                if query in p.obj.name.lower() or query in p.obj.kind.lower()
+            ]
+        self.pick_and_show(matches, f"Results for '{query}'")
+
+    def constellation_menu(self) -> None:
+        """List constellations currently above the horizon."""
+        if not self.engine.catalogue_loaded:
+            print("\nLoading star catalogue (the first run downloads about 15 MB)...")
+        views = self.engine.constellations_up(self.snapshot.time)
+        if not views:
+            print("\nNo constellations currently visible.")
+            return
+
+        print(f"\n--- Constellations visible now ({len(views)}) ---")
+        print("(direction = where its brightest visible star is)")
+        for i, view in enumerate(views, start=1):
+            top = view.stars[0]
+            print(
+                f"  {i}. {view.name} — {len(view.stars)}/{view.total} stars up | "
+                f"look {az_to_compass(top.az)}, {top.alt:.0f}° high"
+            )
+
+        selection = choose("\nSelect a constellation for its stars (0 to go back): ", len(views))
+        if selection:
+            view = views[selection - 1]
+            print(f"\n--- {view.name}: stars above {CONSTELLATION_MIN_ALT:g}° (brightest first) ---")
+            for star in view.stars[:10]:
+                print(f"  HIP {star.hip} — mag {star.magnitude:.2f} | Alt {star.alt:.1f}° | {az_to_compass(star.az)}")
+
+    def filter_menu(self) -> None:
+        """Filter everything currently up by altitude, direction or equipment."""
+        print("\n=== Smart Sky Filter Studio ===")
+        print("1. Filter by Minimum Altitude (Clear view above haze)")
+        print("2. Filter by Compass Direction (Balcony Mode)")
+        print("3. Filter by Equipment / Brightness (Naked Eye vs Telescope)")
+        print("0. Go Back")
+        choice = choose("\nSelect filter type: ", 3)
+        if choice == 0:
+            return
+
+        visible = [p for p in self.snapshot.everything if p.is_up]
+        if choice == 1:
+            min_alt = ask_float("Minimum altitude in degrees [30]: ", default=30.0, low=0.0, high=90.0)
+            results = [p for p in visible if p.alt >= min_alt]
+            title = f"Objects above {min_alt:g}°"
+        elif choice == 2:
+            for i, name in enumerate(COMPASS_POINTS, start=1):
+                print(f"  {i}. {name}")
+            picked = choose("Select direction (0 to go back): ", len(COMPASS_POINTS))
+            if picked == 0:
+                return
+            direction = COMPASS_POINTS[picked - 1]
+            results = [p for p in visible if p.compass == direction]
+            title = f"Objects towards the {direction}"
+        else:
+            print("1. Naked Eye (Mag <= 4.0)")
+            print("2. Binoculars (Mag <= 6.0)")
+            print("3. Telescope (All magnitudes)")
+            picked = choose("Select equipment (0 to go back): ", 3)
+            if picked == 0:
+                return
+            limit = {1: 4.0, 2: 6.0, 3: float("inf")}[picked]
+            results = [p for p in visible if p.obj.magnitude <= limit]
+            title = "Objects for your equipment"
+
+        results.sort(key=lambda p: p.alt, reverse=True)
+        self.pick_and_show(results, title)
+
+
+# --------------------------------------------------------------------------- #
+# Entry point
+# --------------------------------------------------------------------------- #
+
+def prompt_location() -> Location:
+    """Ask for a location until one resolves."""
+    while True:
+        text = input("Enter your location (city name or 'lat, lon'): ")
+        try:
+            return resolve_location(text)
+        except SkywatcherError as exc:
+            print(f"  {exc}\n")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Create the command-line argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="skywatcher",
+        description="Terminal planetarium: see what is above the horizon from any location.",
+    )
+    parser.add_argument(
+        "location", nargs="*", help="city name or 'lat,lon' (you are prompted when omitted)"
+    )
+    parser.add_argument(
+        "--once", action="store_true", help="print what is above the horizon now and exit"
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="show diagnostic messages")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Program entry point. Returns a process exit code."""
+    args = build_parser().parse_args(argv)
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")  # avoid crashes on consoles without emoji support
+        except (AttributeError, ValueError):
+            pass
+
+    try:
+        location = resolve_location(" ".join(args.location)) if args.location else prompt_location()
+        print("\nPreparing sky data...")
+        app = SkyApp(SkyEngine(location))
+        if args.once:
+            app.report()
+        else:
+            app.run()
+    except SkywatcherError as exc:
+        print(f"\nError: {exc}", file=sys.stderr)
+        return 1
+    except (KeyboardInterrupt, EOFError):
+        print("\nGoodbye! Clear skies.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
