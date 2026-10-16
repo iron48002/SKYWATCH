@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
@@ -60,26 +60,68 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   return <div className="glass flex min-h-48 flex-col items-center justify-center rounded-2xl px-6 text-center"><div className="mb-3 rounded-full border border-slate-500/20 bg-slate-400/5 p-3 text-slate-400"><Telescope size={20} /></div><h3 className="text-sm font-semibold text-slate-200">{title}</h3><p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">{body}</p></div>;
 }
 
+function LocationSetup({ value, onChange, onSubmit, isLoading, isError, errorMessage, onRetry }: { value: string; onChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; isLoading: boolean; isError: boolean; errorMessage: string; onRetry: () => void }) {
+  return <div className="sky-shell shell-content relative flex min-h-dvh items-center justify-center overflow-hidden px-5 py-12">
+    <div className="glass fade-up relative w-full max-w-xl rounded-3xl p-6 sm:p-10">
+      <div className="mb-9 flex items-center gap-3">
+        <div className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-200/20 bg-cyan-300/[.07] text-cyan-200"><Orbit size={23} strokeWidth={1.5} /><span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-200 shadow-[0_0_9px_#f6d18a]" /></div>
+        <div><div className="font-serif text-base font-bold tracking-[.1em] text-slate-100">SKYWATCHER</div><div className="eyebrow mt-1 !text-[8px] !tracking-[.2em]">Your personal planetarium</div></div>
+      </div>
+      <div className="eyebrow mb-3 flex items-center gap-2"><LocateFixed size={13} className="text-cyan-200" /> Observer location</div>
+      <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-slate-100 sm:text-4xl">Where are you looking up from?</h1>
+      <p className="mt-3 max-w-lg text-sm leading-6 text-slate-400">Enter your city or coordinates to calculate the live sky above you. We’ll use your location’s timezone and open your observing board.</p>
+      <form onSubmit={onSubmit} className="mt-7 space-y-3" aria-busy={isLoading}>
+        <label htmlFor="setup-location" className="eyebrow block !text-[9px]">City or latitude, longitude</label>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative min-w-0 flex-1">
+            <MapPin size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-200" />
+            <input id="setup-location" required autoComplete="off" value={value} onChange={event => onChange(event.target.value)} placeholder="e.g. Greenwich, London or 51.48, -0.004" className="w-full rounded-xl border border-slate-300/15 bg-[#0b111b]/90 py-3.5 pl-10 pr-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-200/40" data-testid="input-first-location" />
+          </div>
+          <button type="submit" disabled={!value.trim() || isLoading} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-cyan-200 px-5 text-sm font-semibold text-[#0a141b] transition hover:bg-cyan-100 disabled:cursor-wait disabled:opacity-70" data-testid="button-find-my-sky">
+            {isLoading ? <><RefreshCw size={15} className="animate-spin" /> Finding your sky</> : <>Find my sky <ArrowUpRight size={15} /></>}
+          </button>
+        </div>
+      </form>
+      {isLoading && <div role="status" className="mt-4 flex items-center gap-2 text-xs text-cyan-100"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-200" />Resolving your location and calculating the local sky…</div>}
+      {isError && <div role="alert" className="mt-4 flex flex-col gap-3 rounded-xl border border-rose-200/20 bg-rose-200/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs leading-5 text-rose-100/90">{errorMessage}</p><button type="button" onClick={onRetry} className="shrink-0 rounded-lg border border-rose-100/20 px-3 py-2 text-xs text-rose-100 transition hover:bg-rose-100/10" data-testid="button-retry-location">Try again</button></div>}
+      <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-300/[.08] pt-5 text-[10px] text-slate-500"><span className="flex items-center gap-2"><Compass size={13} className="text-violet-200" />City lookup supported</span><span className="flex items-center gap-2"><Crosshair size={13} className="text-cyan-200" />Coordinates supported</span><span className="flex items-center gap-2"><Clock3 size={13} className="text-amber-200" />Automatic local timezone</span></div>
+    </div>
+  </div>;
+}
+
 function AppFrame() {
-  const [path] = useLocation();
-  const [locationInput, setLocationInput] = useState(() => localStorage.getItem('skywatcher-location') || 'Greenwich, London');
-  const [submittedLocation, setSubmittedLocation] = useState(() => localStorage.getItem('skywatcher-location') || 'Greenwich, London');
+  const [path, navigate] = useLocation();
+  const [initialLocation] = useState(() => localStorage.getItem('skywatcher-location') || '');
+  const [locationInput, setLocationInput] = useState(initialLocation);
+  const [submittedLocation, setSubmittedLocation] = useState(initialLocation);
+  const [hasCompletedSetup, setHasCompletedSetup] = useState(Boolean(initialLocation));
   const [filters, setFilters] = useState<Filters>(() => {
     try { return { ...defaultFilters, ...JSON.parse(localStorage.getItem('skywatcher-filters') || '{}') }; } catch { return defaultFilters; }
   });
   const [showLocation, setShowLocation] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 60_000 } });
-  const sky = useGetSkySnapshot({ location: submittedLocation }, { query: { queryKey: getGetSkySnapshotQueryKey({ location: submittedLocation }), refetchInterval: 60_000, refetchIntervalInBackground: true } });
+  const sky = useGetSkySnapshot({ location: submittedLocation }, { query: { queryKey: getGetSkySnapshotQueryKey({ location: submittedLocation }), enabled: Boolean(submittedLocation), refetchInterval: 60_000, refetchIntervalInBackground: true } });
   const snapshot = sky.data;
   const timezone = snapshot?.location.timezone || 'UTC';
   const isActive = (href: string) => href === '/' ? path === '/' : path.startsWith(href);
+  useEffect(() => {
+    if (!submittedLocation || !snapshot) return;
+    localStorage.setItem('skywatcher-location', submittedLocation);
+    if (!hasCompletedSetup) {
+      setHasCompletedSetup(true);
+      navigate('/');
+    }
+  }, [submittedLocation, snapshot, hasCompletedSetup, navigate]);
   const submitLocation = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const value = locationInput.trim();
     if (!value) return;
+    if (value === submittedLocation && sky.isError) {
+      void sky.refetch();
+      return;
+    }
     setSubmittedLocation(value);
-    localStorage.setItem('skywatcher-location', value);
     setShowLocation(false);
   };
   const setFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {
@@ -94,6 +136,18 @@ function AppFrame() {
   };
   const refresh = () => sky.refetch();
   const apiDown = health.isError;
+
+  if (!hasCompletedSetup) {
+    return <LocationSetup
+      value={locationInput}
+      onChange={setLocationInput}
+      onSubmit={submitLocation}
+      isLoading={Boolean(submittedLocation) && sky.isFetching}
+      isError={Boolean(submittedLocation) && sky.isError}
+      errorMessage={sky.error instanceof Error ? sky.error.message : 'We could not load the sky for that location. Check the city or coordinate format and try again.'}
+      onRetry={() => { void sky.refetch(); }}
+    />;
+  }
 
   return <div className="sky-shell shell-content">
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-slate-300/[.08] bg-[#0d1420]/90 px-4 py-6 backdrop-blur-xl lg:flex">
