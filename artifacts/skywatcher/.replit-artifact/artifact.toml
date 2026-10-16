@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Skywatcher"
+description = "A live planetarium and stargazing dashboard for exploring the Sun, Moon, planets, Messier objects, and visible constellations from any observing location."
+version = "1.0.0"
+id = "artifacts/skywatcher"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23188
+
+[services.development]
+run = "pnpm --filter @workspace/skywatcher run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/skywatcher", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/skywatcher/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23188"
+BASE_PATH = "/"

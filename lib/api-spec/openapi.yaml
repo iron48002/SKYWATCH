@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Skywatcher live observing data API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: skywatcher
+    description: Live ephemeris data for an observing location
 paths:
   /healthz:
     get:
@@ -24,6 +26,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /skywatcher/sky:
+    get:
+      operationId: getSkySnapshot
+      tags: [skywatcher]
+      summary: Get current sky positions for a location
+      parameters:
+        - name: location
+          in: query
+          required: true
+          description: City name or latitude,longitude coordinates
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        "200":
+          description: Current astronomical positions and observing events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkySnapshot"
+        "400":
+          description: Invalid or unresolved location
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Astronomy data could not be loaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +68,147 @@ components:
           type: string
       required:
         - status
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    LocationInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        timezone:
+          type: string
+      required: [name, latitude, longitude, timezone]
+    SkyCounts:
+      type: object
+      properties:
+        solarVisible:
+          type: integer
+        solarTotal:
+          type: integer
+        deepSkyVisible:
+          type: integer
+        deepSkyTotal:
+          type: integer
+        constellationsVisible:
+          type: integer
+      required:
+        - solarVisible
+        - solarTotal
+        - deepSkyVisible
+        - deepSkyTotal
+        - constellationsVisible
+    SolarPosition:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        altitude:
+          type: number
+        azimuth:
+          type: number
+        compass:
+          type: string
+        magnitude:
+          type: number
+        magnitudeIsApproximate:
+          type: boolean
+        isUp:
+          type: boolean
+        rise:
+          type: [string, "null"]
+        set:
+          type: [string, "null"]
+        transit:
+          type: [string, "null"]
+        transitAltitude:
+          type: [number, "null"]
+        eventsError:
+          type: [string, "null"]
+      required:
+        - name
+        - kind
+        - altitude
+        - azimuth
+        - compass
+        - magnitude
+        - magnitudeIsApproximate
+        - isUp
+        - rise
+        - set
+        - transit
+        - transitAltitude
+        - eventsError
+    DeepSkyPosition:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+        altitude:
+          type: number
+        azimuth:
+          type: number
+        compass:
+          type: string
+        magnitude:
+          type: number
+        isUp:
+          type: boolean
+      required: [name, kind, altitude, azimuth, compass, magnitude, isUp]
+    ConstellationSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        visibleStarCount:
+          type: integer
+        totalStarCount:
+          type: integer
+        direction:
+          type: string
+        brightestStarAltitude:
+          type: number
+        brightestStarMagnitude:
+          type: number
+      required:
+        - name
+        - visibleStarCount
+        - totalStarCount
+        - direction
+        - brightestStarAltitude
+        - brightestStarMagnitude
+    SkySnapshot:
+      type: object
+      properties:
+        location:
+          $ref: "#/components/schemas/LocationInfo"
+        observedAt:
+          type: string
+          format: date-time
+        counts:
+          $ref: "#/components/schemas/SkyCounts"
+        solar:
+          type: array
+          items:
+            $ref: "#/components/schemas/SolarPosition"
+        messier:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeepSkyPosition"
+        constellations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConstellationSummary"
+      required: [location, observedAt, counts, solar, messier, constellations]
 

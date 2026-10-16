@@ -1,0 +1,1 @@
+- [Bundled API runtime paths](api-server-bundled-paths.md) — Resolve script and data paths from a verified project root; API routes run inside one bundled entry.
