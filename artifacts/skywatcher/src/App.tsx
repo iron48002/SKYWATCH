@@ -124,6 +124,11 @@ function AppFrame() {
     setSubmittedLocation(value);
     setShowLocation(false);
   };
+  const returnToLocationSetup = () => {
+    setSubmittedLocation('');
+    setHasCompletedSetup(false);
+    setShowLocation(false);
+  };
   const setFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {
     const next = { ...filters, [key]: value };
     setFilters(next);
@@ -179,7 +184,7 @@ function AppFrame() {
           <div className="hidden text-right sm:block"><div className="mono text-[11px] text-slate-200">{snapshot ? fmtDate(snapshot.observedAt, timezone) : 'Local sky time'}</div><div className="eyebrow mt-1 !text-[8px]">{snapshot?.location.timezone || 'Location timezone'}</div></div>
         </div>
       </div>
-      {showLocation && <form onSubmit={submitLocation} className="absolute right-4 top-[58px] z-50 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-slate-300/15 bg-[#121b2a] p-4 shadow-2xl sm:right-8"><label className="eyebrow mb-2 block" htmlFor="location-input">Observer location</label><div className="flex gap-2"><input id="location-input" value={locationInput} onChange={e => setLocationInput(e.target.value)} placeholder="City or latitude,longitude" className="min-w-0 flex-1 rounded-lg border border-slate-300/15 bg-[#0b111b] px-3 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-200/40" data-testid="input-location" /><button className="rounded-lg bg-cyan-200 px-3 text-xs font-semibold text-[#0a141b] hover:bg-cyan-100" data-testid="button-submit-location">Set</button></div><p className="mt-2 text-[10px] text-slate-500">Use a city name or coordinates. The returned location sets the observing timezone.</p></form>}
+      {showLocation && <form onSubmit={submitLocation} className="absolute right-4 top-[58px] z-50 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-slate-300/15 bg-[#121b2a] p-4 shadow-2xl sm:right-8"><label className="eyebrow mb-2 block" htmlFor="location-input">Observer location</label><div className="flex gap-2"><input id="location-input" value={locationInput} onChange={e => setLocationInput(e.target.value)} placeholder="City or latitude,longitude" className="min-w-0 flex-1 rounded-lg border border-slate-300/15 bg-[#0b111b] px-3 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-200/40" data-testid="input-location" /><button className="rounded-lg bg-cyan-200 px-3 text-xs font-semibold text-[#0a141b] hover:bg-cyan-100" data-testid="button-submit-location">Set</button></div><p className="mt-2 text-[10px] text-slate-500">Use a city name or coordinates. The returned location sets the observing timezone.</p><div className="mt-3 border-t border-slate-300/10 pt-3"><button type="button" onClick={returnToLocationSetup} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-cyan-100 transition hover:bg-cyan-200/[.06]" data-testid="button-back-to-location-setup"><LocateFixed size={14} />Back to location setup</button></div></form>}
       {mobileMenu && <nav className="grid grid-cols-2 gap-1 border-t border-slate-300/10 px-4 py-3 lg:hidden">{routes.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setMobileMenu(false)} className={`nav-link flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs no-underline ${isActive(href) ? 'active' : 'text-slate-400'}`}><Icon size={15} />{label}</Link>)}</nav>}
     </header>
     <main className="mx-auto min-h-[calc(100dvh-68px)] max-w-[1600px] px-4 py-7 sm:px-7 sm:py-9 lg:ml-[248px] xl:px-10">
