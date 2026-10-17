@@ -9,6 +9,7 @@ import NotFound from '@/pages/not-found';
 import './index.css';
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 20_000, retry: 1 } } });
+const skywatchLogo = `${import.meta.env.BASE_URL}skywatch-logo.jpeg`;
 type Filters = { minAltitude: number; direction: string; maxMagnitude: number; equipment: string };
 const equipmentLimits: Record<string, number> = { 'Naked Eye': 4, Binoculars: 6, Telescope: 14 };
 const defaultFilters: Filters = { minAltitude: 15, direction: 'Any direction', maxMagnitude: 6, equipment: 'Binoculars' };
@@ -63,9 +64,9 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 function LocationSetup({ value, onChange, onSubmit, isLoading, isError, errorMessage, onRetry }: { value: string; onChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; isLoading: boolean; isError: boolean; errorMessage: string; onRetry: () => void }) {
   return <div className="sky-shell shell-content relative flex min-h-dvh items-center justify-center overflow-hidden px-5 py-12">
     <div className="glass fade-up relative w-full max-w-xl rounded-3xl p-6 sm:p-10">
-      <div className="mb-9 flex items-center gap-3">
-        <div className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-200/20 bg-cyan-300/[.07] text-cyan-200"><Orbit size={23} strokeWidth={1.5} /><span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-200 shadow-[0_0_9px_#f6d18a]" /></div>
-        <div><div className="font-serif text-base font-bold tracking-[.1em] text-slate-100">SKYWATCH</div><div className="eyebrow mt-1 !text-[8px] !tracking-[.2em]">Your personal planetarium</div></div>
+      <div className="mb-8 flex flex-col items-center gap-2">
+        <img src={skywatchLogo} alt="Skywatch logo" className="h-32 w-32 rounded-2xl border border-slate-300/10 object-cover shadow-[0_12px_40px_rgba(0,0,0,.3)]" />
+        <div className="eyebrow !text-[8px] !tracking-[.2em]">Your personal planetarium</div>
       </div>
       <div className="eyebrow mb-3 flex items-center gap-2"><LocateFixed size={13} className="text-cyan-200" /> Observer location</div>
       <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-slate-100 sm:text-4xl">Where are you looking up from?</h1>
@@ -156,9 +157,9 @@ function AppFrame() {
 
   return <div className="sky-shell shell-content">
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-slate-300/[.08] bg-[#0d1420]/90 px-4 py-6 backdrop-blur-xl lg:flex">
-      <Link href="/" className="mb-9 flex items-center gap-3 px-2 text-inherit no-underline">
-        <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-200/20 bg-cyan-300/[.07] text-cyan-200"><Orbit size={22} strokeWidth={1.5} /><span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-200 shadow-[0_0_9px_#f6d18a]" /></div>
-        <div><div className="font-serif text-[17px] font-bold tracking-[.08em] text-slate-100">SKYWATCH</div><div className="eyebrow mt-0.5 !text-[8px] !tracking-[.21em]">Observing instrument</div></div>
+      <Link href="/" aria-label="Skywatch home" className="mb-8 flex flex-col items-center gap-2 px-2 text-inherit no-underline">
+        <img src={skywatchLogo} alt="Skywatch logo" className="h-32 w-32 rounded-2xl border border-slate-300/10 object-cover shadow-[0_10px_36px_rgba(0,0,0,.25)]" />
+        <div className="eyebrow !text-[8px] !tracking-[.21em]">Observing instrument</div>
       </Link>
       <div className="mb-2 px-3 eyebrow">Observing desk</div>
       <nav className="space-y-1" aria-label="Main navigation">{routes.map(({ href, label, icon: Icon }) => <Link key={href} href={href} data-testid={`link-${label.toLowerCase().replaceAll(' ', '-')}`} className={`nav-link flex items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-[13px] font-medium no-underline ${isActive(href) ? 'active' : 'text-slate-400'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{href === '/' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-cyan-200" />}</Link>)}</nav>
@@ -174,7 +175,7 @@ function AppFrame() {
       <div className="mx-auto flex h-[68px] max-w-[1600px] items-center justify-between gap-3 px-4 sm:px-7 xl:px-10">
         <div className="flex items-center gap-3">
           <button onClick={() => setMobileMenu(!mobileMenu)} className="rounded-lg border border-slate-400/15 p-2 text-slate-300 lg:hidden" aria-label="Toggle navigation"><Menu size={18} /></button>
-          <div className="lg:hidden"><div className="font-serif text-sm font-bold tracking-[.13em] text-slate-100">SKYWATCH</div></div>
+          <div className="flex items-center gap-2 lg:hidden"><img src={skywatchLogo} alt="" className="h-8 w-8 rounded-lg border border-slate-300/10 object-cover" /><div className="font-serif text-sm font-bold tracking-[.13em] text-slate-100">SKYWATCH</div></div>
           <div className="hidden items-center gap-2 text-xs text-slate-400 sm:flex"><span className="text-slate-600">Desk</span><span>/</span><span className="text-slate-200">{routes.find(item => isActive(item.href))?.label}</span></div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
