@@ -5,6 +5,7 @@ import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter
 import { useGetSkySnapshot, getGetSkySnapshotQueryKey, useHealthCheck, getHealthCheckQueryKey } from '@workspace/api-client-react';
 import type { ConstellationSummary, DeepSkyPosition, SolarPosition } from '@workspace/api-client-react';
 import { Activity, ArrowDownWideNarrow, ArrowUpRight, Check, ChevronDown, Clock3, Compass, Crosshair, Filter, Globe2, LocateFixed, MapPin, Menu, Orbit, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Telescope } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 import NotFound from '@/pages/not-found';
 import './index.css';
 
@@ -353,6 +354,13 @@ function Router() {
   return <Switch><Route path="/" component={AppFrame} /><Route path="/solar-system" component={AppFrame} /><Route path="/deep-sky" component={AppFrame} /><Route path="/constellations" component={AppFrame} /><Route path="/filters" component={AppFrame} /><Route component={NotFound} /></Switch>;
 }
 function App() {
-  return <QueryClientProvider client={client}><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router /></WouterRouter></QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+        <Router />
+      </WouterRouter>
+      <Analytics />
+    </QueryClientProvider>
+  );
 }
 export default App;
