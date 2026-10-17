@@ -65,7 +65,7 @@ function LocationSetup({ value, onChange, onSubmit, isLoading, isError, errorMes
     <div className="glass fade-up relative w-full max-w-xl rounded-3xl p-6 sm:p-10">
       <div className="mb-9 flex items-center gap-3">
         <div className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-200/20 bg-cyan-300/[.07] text-cyan-200"><Orbit size={23} strokeWidth={1.5} /><span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-200 shadow-[0_0_9px_#f6d18a]" /></div>
-        <div><div className="font-serif text-base font-bold tracking-[.1em] text-slate-100">SKYWATCHER</div><div className="eyebrow mt-1 !text-[8px] !tracking-[.2em]">Your personal planetarium</div></div>
+        <div><div className="font-serif text-base font-bold tracking-[.1em] text-slate-100">SKYWATCH</div><div className="eyebrow mt-1 !text-[8px] !tracking-[.2em]">Your personal planetarium</div></div>
       </div>
       <div className="eyebrow mb-3 flex items-center gap-2"><LocateFixed size={13} className="text-cyan-200" /> Observer location</div>
       <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-slate-100 sm:text-4xl">Where are you looking up from?</h1>
@@ -158,7 +158,7 @@ function AppFrame() {
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-slate-300/[.08] bg-[#0d1420]/90 px-4 py-6 backdrop-blur-xl lg:flex">
       <Link href="/" className="mb-9 flex items-center gap-3 px-2 text-inherit no-underline">
         <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-200/20 bg-cyan-300/[.07] text-cyan-200"><Orbit size={22} strokeWidth={1.5} /><span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-200 shadow-[0_0_9px_#f6d18a]" /></div>
-        <div><div className="font-serif text-[17px] font-bold tracking-[.08em] text-slate-100">SKYWATCHER</div><div className="eyebrow mt-0.5 !text-[8px] !tracking-[.21em]">Observing instrument</div></div>
+        <div><div className="font-serif text-[17px] font-bold tracking-[.08em] text-slate-100">SKYWATCH</div><div className="eyebrow mt-0.5 !text-[8px] !tracking-[.21em]">Observing instrument</div></div>
       </Link>
       <div className="mb-2 px-3 eyebrow">Observing desk</div>
       <nav className="space-y-1" aria-label="Main navigation">{routes.map(({ href, label, icon: Icon }) => <Link key={href} href={href} data-testid={`link-${label.toLowerCase().replaceAll(' ', '-')}`} className={`nav-link flex items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-[13px] font-medium no-underline ${isActive(href) ? 'active' : 'text-slate-400'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{href === '/' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-cyan-200" />}</Link>)}</nav>
@@ -174,7 +174,7 @@ function AppFrame() {
       <div className="mx-auto flex h-[68px] max-w-[1600px] items-center justify-between gap-3 px-4 sm:px-7 xl:px-10">
         <div className="flex items-center gap-3">
           <button onClick={() => setMobileMenu(!mobileMenu)} className="rounded-lg border border-slate-400/15 p-2 text-slate-300 lg:hidden" aria-label="Toggle navigation"><Menu size={18} /></button>
-          <div className="lg:hidden"><div className="font-serif text-sm font-bold tracking-[.13em] text-slate-100">SKYWATCHER</div></div>
+          <div className="lg:hidden"><div className="font-serif text-sm font-bold tracking-[.13em] text-slate-100">SKYWATCH</div></div>
           <div className="hidden items-center gap-2 text-xs text-slate-400 sm:flex"><span className="text-slate-600">Desk</span><span>/</span><span className="text-slate-200">{routes.find(item => isActive(item.href))?.label}</span></div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
@@ -211,7 +211,7 @@ function Overview({ snapshot, isLoading, filters }: { snapshot?: import('@worksp
   const rising = snapshot?.solar.filter(item => item.isUp).length ?? 0;
   const objects = snapshot ? filterDeepSky(snapshot.messier, filters, true, '') : [];
   return <div className="fade-up">
-    <PageHeading kicker="Live observing report" title={<span className="inline-flex items-center gap-3">Live <span role="img" aria-label="Live status" className="relative inline-flex h-3 w-3 shrink-0"><span className="absolute inset-0 animate-ping rounded-full bg-red-500/50" /><span className="relative h-3 w-3 rounded-full bg-red-500 shadow-[0_0_14px_rgba(239,68,68,.85)]" /></span></span>} sub={snapshot ? `A live, location-aware view from ${snapshot.location.name}. Positions are calculated for ${snapshot.location.latitude.toFixed(3)}°, ${snapshot.location.longitude.toFixed(3)}° and refresh every minute.` : 'Your observatory view, calibrated to the observer location.'} action={<div className="flex items-center gap-2"><span className="hidden text-[10px] text-slate-500 sm:inline">LIVE · REFRESHES EVERY 60S</span><span className="h-1.5 w-1.5 rounded-full bg-cyan-200 shadow-[0_0_10px_rgba(103,223,233,.8)]" /></div>} />
+    <PageHeading kicker="Live observing report" title="Live" sub={snapshot ? `A live, location-aware view from ${snapshot.location.name}. Positions are calculated for ${snapshot.location.latitude.toFixed(3)}°, ${snapshot.location.longitude.toFixed(3)}° and refresh every minute.` : 'Your observatory view, calibrated to the observer location.'} action={<div className="flex items-center gap-3" role="status" aria-label="Live sky data, refreshes every 60 seconds"><span className="inline-flex items-center gap-2 rounded-full border border-red-400/25 bg-red-500/[.08] px-3 py-1.5 text-[10px] font-semibold tracking-[.16em] text-red-200"><span className="relative inline-flex h-2 w-2"><span className="absolute inset-0 animate-ping rounded-full bg-red-500/55" /><span className="relative h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,.9)]" /></span>LIVE</span><span className="hidden text-[10px] text-slate-500 sm:inline">REFRESHES EVERY 60S</span></div>} />
     <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3"><Metric label="Solar system above horizon" value={snapshot ? `${rising} / ${snapshot.counts.solarTotal}` : '—'} detail="Sun, Moon & planets currently up" /><Metric label="Messier objects visible" value={snapshot ? `${snapshot.counts.deepSkyVisible}` : '—'} detail={`of ${snapshot?.counts.deepSkyTotal ?? '—'} catalogued objects`} accent="violet" /><Metric label="Constellations in view" value={snapshot?.counts.constellationsVisible ?? '—'} detail="With at least one visible star" accent="gold" /></div>
     <div className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
       <section className="glass overflow-hidden rounded-2xl">
