@@ -102,8 +102,8 @@ function AppFrame() {
   });
   const [showLocation, setShowLocation] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
-  const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 60_000 } });
-  const sky = useGetSkySnapshot({ location: submittedLocation }, { query: { queryKey: getGetSkySnapshotQueryKey({ location: submittedLocation }), enabled: Boolean(submittedLocation), refetchInterval: 60_000, refetchIntervalInBackground: true } });
+  const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 300_000, refetchIntervalInBackground: false } });
+  const sky = useGetSkySnapshot({ location: submittedLocation }, { query: { queryKey: getGetSkySnapshotQueryKey({ location: submittedLocation }), enabled: Boolean(submittedLocation), refetchInterval: 300_000, refetchIntervalInBackground: false } });
   const snapshot = sky.data;
   const timezone = snapshot?.location.timezone || 'UTC';
   const isActive = (href: string) => href === '/' ? path === '/' : path.startsWith(href);
@@ -167,7 +167,7 @@ function AppFrame() {
       <div className="mt-auto">
         <div className="glass rounded-xl p-4">
            <div className="flex items-center justify-between"><span className="eyebrow !text-[9px]">Signal</span><span className={`flex items-center gap-1.5 text-[10px] ${health.isError ? 'text-rose-300' : 'text-emerald-200'}`}><span className={`h-1.5 w-1.5 rounded-full ${health.isError ? 'bg-rose-300' : 'bg-emerald-300'}`} />{health.isError ? 'Unavailable' : health.isLoading ? 'Connecting' : 'Connected'}</span></div>
-          <p className="mt-2 text-[11px] leading-5 text-slate-500">{health.isError ? 'Sky service is not responding. Data may be out of date.' : 'Live ephemeris link active. Positions refresh each minute.'}</p>
+           <p className="mt-2 text-[11px] leading-5 text-slate-500">{health.isError ? 'Sky service is not responding. Data may be out of date.' : 'Live ephemeris link active. Positions refresh every five minutes.'}</p>
         </div>
         <div className="mt-4 flex items-center gap-2 px-2 text-[10px] text-slate-600"><Activity size={12} /> SKY SERVICE <span className="mono ml-auto">v0.1</span></div>
       </div>
@@ -206,7 +206,7 @@ function AppFrame() {
         </Link>
         <span className="hidden sm:inline">Sky positions are calculated for the selected observer location.</span>
       </div>
-      <span className="mono shrink-0">AUTOMATIC UPDATE · 60 SEC</span>
+      <span className="mono shrink-0">AUTOMATIC UPDATE · 5 MIN</span>
     </footer>
   </div>;
 }
@@ -222,7 +222,7 @@ function Overview({ snapshot, isLoading, filters }: { snapshot?: import('@worksp
   const rising = snapshot?.solar.filter(item => item.isUp).length ?? 0;
   const objects = snapshot ? filterDeepSky(snapshot.messier, filters, true, '') : [];
   return <div className="fade-up">
-    <PageHeading kicker="Live observing report" title="Live" sub={snapshot ? `A live, location-aware view from ${snapshot.location.name}. Positions are calculated for ${snapshot.location.latitude.toFixed(3)}°, ${snapshot.location.longitude.toFixed(3)}° and refresh every minute.` : 'Your observatory view, calibrated to the observer location.'} action={<div className="flex items-center gap-3" role="status" aria-label="Live sky data, refreshes every 60 seconds"><span className="inline-flex items-center gap-2 rounded-full border border-red-400/25 bg-red-500/[.08] px-3 py-1.5 text-[10px] font-semibold tracking-[.16em] text-red-200"><span className="relative inline-flex h-2 w-2"><span className="absolute inset-0 animate-ping rounded-full bg-red-500/55" /><span className="relative h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,.9)]" /></span>LIVE</span><span className="hidden text-[10px] text-slate-500 sm:inline">REFRESHES EVERY 60S</span></div>} />
+    <PageHeading kicker="Live observing report" title="Live" sub={snapshot ? `A live, location-aware view from ${snapshot.location.name}. Positions are calculated for ${snapshot.location.latitude.toFixed(3)}°, ${snapshot.location.longitude.toFixed(3)}° and refresh every five minutes.` : 'Your observatory view, calibrated to the observer location.'} action={<div className="flex items-center gap-3" role="status" aria-label="Live sky data, refreshes every five minutes"><span className="inline-flex items-center gap-2 rounded-full border border-red-400/25 bg-red-500/[.08] px-3 py-1.5 text-[10px] font-semibold tracking-[.16em] text-red-200"><span className="relative inline-flex h-2 w-2"><span className="absolute inset-0 animate-ping rounded-full bg-red-500/55" /><span className="relative h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,.9)]" /></span>LIVE</span><span className="hidden text-[10px] text-slate-500 sm:inline">REFRESHES EVERY 5 MIN</span></div>} />
     <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3"><Metric label="Solar system above horizon" value={snapshot ? `${rising} / ${snapshot.counts.solarTotal}` : '—'} detail="Sun, Moon & planets currently up" /><Metric label="Messier objects visible" value={snapshot ? `${snapshot.counts.deepSkyVisible}` : '—'} detail={`of ${snapshot?.counts.deepSkyTotal ?? '—'} catalogued objects`} accent="violet" /><Metric label="Constellations in view" value={snapshot?.counts.constellationsVisible ?? '—'} detail="With at least one visible star" accent="gold" /></div>
     <div className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
       <section className="glass overflow-hidden rounded-2xl">
