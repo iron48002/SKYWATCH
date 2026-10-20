@@ -62,7 +62,7 @@ logger = logging.getLogger("skywatcher")
 
 DATA_DIR = Path.home() / ".skywatcher"
 EPHEMERIS_FILE = "de421.bsp"
-GEOCODER_USER_AGENT = "skywatch"
+GEOCODER_USER_AGENT = "skywatcher-nived-vercel-app"
 GEOCODER_TIMEOUT_S = 10
 
 CONSTELLATION_MAG_LIMIT = 5.0  # only count stars this bright or brighter (try 3.5 for city skies)
@@ -362,10 +362,11 @@ def resolve_location(text: str) -> Location:
     else:
         try:
             place = Nominatim(user_agent=GEOCODER_USER_AGENT, timeout=GEOCODER_TIMEOUT_S).geocode(text)
-        except GeopyError as exc:
+                except GeopyError as exc:
             raise SkywatcherError(
                 "Could not reach the geocoding service (are you offline?). "
-                "Enter coordinates instead, for example '12.97, 77.59'."
+                "Enter coordinates instead, for example '12.97, 77.59'. "
+                f"[{type(exc).__name__}: {exc}]"
             ) from exc
         if place is None:
             raise SkywatcherError(
