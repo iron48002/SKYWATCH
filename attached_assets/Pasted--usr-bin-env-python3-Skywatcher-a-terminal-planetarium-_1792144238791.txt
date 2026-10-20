@@ -382,6 +382,49 @@ def find_timezone(lat: float, lon: float) -> tzinfo:
     return timezone.utc
 
 
+
+@lru_cache(maxsize=256)
+def geocode_city(text: str) -> Optional[tuple[float, float, str]]:
+    """Look up a city using Nominatim, with Photon as a fallback."""
+
+    errors = []
+
+    # Try Nominatim first.
+    try:
+        place = Nominatim(
+            user_agent=GEOCODER_USER_AGENT,
+            timeout=GEOCODER_TIMEOUT_S,
+        ).geocode(text)
+
+        if place is not None:
+            return place.latitude, place.longitude, text
+
+    except GeopyError as exc:
+        errors.append(f"Nominatim: {type(exc).__name__}: {exc}")
+
+    # Fall back to Photon if Nominatim fails or finds no result.
+    try:
+        place = Photon(
+            user_agent=GEOCODER_USER_AGENT,
+            timeout=GEOCODER_TIMEOUT_S,
+        ).geocode(text)
+
+        if place is not None:
+            return place.latitude, place.longitude, text
+
+    except GeopyError as exc:
+        errors.append(f"Photon: {type(exc).__name__}: {exc}")
+
+    if errors:
+        raise SkywatcherError(
+            "Both geocoding services failed. "
+            + " | ".join(errors)
+            + " | You can enter coordinates instead, e.g. '12.97, 77.59'."
+        )
+
+    return None
+
+
 def resolve_location(text: str) -> Location:
     """Resolve a city name or coordinate string into a Location."""
     text = text.strip()
