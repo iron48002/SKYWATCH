@@ -33,7 +33,7 @@ try:
     import numpy as np
     import pandas as pd
     from geopy.exc import GeopyError
-    from geopy.geocoders import Nominatim
+    from geopy.geocoders import Nominatim, Photon
     from functools import lru_cache
     from skyfield import almanac
     from skyfield.api import (
