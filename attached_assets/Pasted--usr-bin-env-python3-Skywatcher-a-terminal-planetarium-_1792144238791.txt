@@ -363,7 +363,7 @@ def resolve_location(text: str) -> Location:
     else:
         try:
             place = Nominatim(user_agent=GEOCODER_USER_AGENT, timeout=GEOCODER_TIMEOUT_S).geocode(text)
-except GeopyError as exc:
+        except GeopyError as exc:
             raise SkywatcherError(
                 "Could not reach the geocoding service (are you offline?). "
                 "Enter coordinates instead, for example '12.97, 77.59'. "
