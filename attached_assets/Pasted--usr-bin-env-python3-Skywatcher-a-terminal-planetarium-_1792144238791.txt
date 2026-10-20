@@ -439,26 +439,17 @@ def resolve_location(text: str) -> Location:
     if coords is not None:
         lat, lon = coords
         name = f"{lat:.4f}, {lon:.4f}"
+   
     else:
-        try:
-            place = Nominatim(
-                user_agent=GEOCODER_USER_AGENT,
-                timeout=GEOCODER_TIMEOUT_S,
-            ).geocode(text)
-        except GeopyError as exc:
-            raise SkywatcherError(
-                "Could not reach the geocoding service (are you offline?). "
-                "Enter coordinates instead, for example '12.97, 77.59'. "
-                f"[{type(exc).__name__}: {exc}]"
-            ) from exc
+        result = geocode_city(text)
 
-        if place is None:
+        if result is None:
             raise SkywatcherError(
                 f"Location '{text}' not found. "
                 "Try a more specific name (e.g. 'Bangalore, India')."
             )
 
-        lat, lon, name = place.latitude, place.longitude, text
+        lat, lon, name = result
 
     return Location(
         name=name,
