@@ -34,6 +34,7 @@ try:
     import pandas as pd
     from geopy.exc import GeopyError
     from geopy.geocoders import Nominatim
+    from functools import lru_cache
     from skyfield import almanac
     from skyfield.api import (
         Loader,
