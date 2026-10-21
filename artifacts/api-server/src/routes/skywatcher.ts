@@ -36,7 +36,10 @@ const workspaceRoot = [
   resolve(moduleDir, ".."),
   resolve(moduleDir, "../../.."),
 ].find((candidate) => existsSync(join(candidate, sourcePath))) ?? process.cwd();
-const pythonPath = resolve(workspaceRoot, ".pythonlibs/bin/python");
+const pythonPath =
+  process.platform === "win32"
+    ? resolve(workspaceRoot, ".venv-skywatcher", "Scripts", "python.exe")
+    : resolve(workspaceRoot, ".pythonlibs", "bin", "python");
 const pythonAdapterPath = resolve(
   workspaceRoot,
   "artifacts/api-server/python/skywatcher_api.py",

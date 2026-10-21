@@ -49,7 +49,8 @@ function StatusPill({ children, tone = 'cyan' }: { children: ReactNode; tone?: '
 }
 function Metric({ label, value, detail, accent = 'cyan' }: { label: string; value: string | number; detail: string; accent?: 'cyan' | 'violet' | 'gold' }) {
   const colors = { cyan: 'text-cyan-200', violet: 'text-violet-200', gold: 'text-amber-200' };
-  return <div className="glass rounded-2xl p-5"><div className="eyebrow">{label}</div><div className={`mt-3 font-serif text-4xl font-semibold tracking-tight ${colors[accent]}`}>{value}</div><div className="mt-2 text-xs text-slate-500">{detail}</div></div>;
+  const accents = { cyan: 'from-cyan-200/60', violet: 'from-violet-200/60', gold: 'from-amber-200/60' };
+  return <div className="glass relative overflow-hidden rounded-2xl p-5"><div aria-hidden="true" className={`absolute inset-x-5 top-0 h-px bg-gradient-to-r ${accents[accent]} to-transparent`} /><div className="eyebrow">{label}</div><div className={`mt-3 font-serif text-4xl font-semibold tracking-tight ${colors[accent]}`}>{value}</div><div className="mt-2 text-xs text-slate-500">{detail}</div></div>;
 }
 function PageHeading({ kicker, title, sub, action }: { kicker: string; title: ReactNode; sub: string; action?: ReactNode }) {
   return <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><div className="eyebrow mb-2">{kicker}</div><h1 className="font-serif text-3xl font-semibold tracking-tight text-slate-100 sm:text-[38px]">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{sub}</p></div>{action}</div>;
