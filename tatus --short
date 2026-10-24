@@ -1,0 +1,23 @@
+[1mdiff --git a/artifacts/skywatcher/src/App.tsx b/artifacts/skywatcher/src/App.tsx[m
+[1mindex 6505b52..54a1215 100644[m
+[1m--- a/artifacts/skywatcher/src/App.tsx[m
+[1m+++ b/artifacts/skywatcher/src/App.tsx[m
+[36m@@ -6,6 +6,7 @@[m [mimport { useGetSkySnapshot, getGetSkySnapshotQueryKey, useHealthCheck, getHealth[m
+ import type { ConstellationSummary, DeepSkyPosition, SolarPosition } from '@workspace/api-client-react';[m
+ import { Activity, ArrowDownWideNarrow, ArrowUpRight, Check, ChevronDown, Clock3, Compass, Crosshair, Filter, Globe2, LocateFixed, MapPin, Menu, Orbit, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Telescope } from 'lucide-react';[m
+ import NotFound from '@/pages/not-found';[m
+[32m+[m[32mimport { useScrollDismiss } from '@/hooks/use-scroll-dismiss';[m
+ import './index.css';[m
+ [m
+ const client = new QueryClient({ defaultOptions: { queries: { staleTime: 20_000, retry: 1 } } });[m
+[36m@@ -103,6 +104,10 @@[m [mfunction AppFrame() {[m
+   });[m
+   const [showLocation, setShowLocation] = useState(false);[m
+   const [mobileMenu, setMobileMenu] = useState(false);[m
+[32m+[m[32m  useScrollDismiss(showLocation || mobileMenu, () => {[m
+[32m+[m[32m    setShowLocation(false);[m
+[32m+[m[32m    setMobileMenu(false);[m
+[32m+[m[32m  });[m
+   const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 300_000, refetchIntervalInBackground: false } });[m
+   const sky = useGetSkySnapshot({ location: submittedLocation }, { query: { queryKey: getGetSkySnapshotQueryKey({ location: submittedLocation }), enabled: Boolean(submittedLocation), refetchInterval: 300_000, refetchIntervalInBackground: false } });[m
+   const snapshot = sky.data;[m

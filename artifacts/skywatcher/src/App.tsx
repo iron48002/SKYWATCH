@@ -6,6 +6,7 @@ import { useGetSkySnapshot, getGetSkySnapshotQueryKey, useHealthCheck, getHealth
 import type { ConstellationSummary, DeepSkyPosition, SolarPosition } from '@workspace/api-client-react';
 import { Activity, ArrowDownWideNarrow, ArrowUpRight, Check, ChevronDown, Clock3, Compass, Crosshair, Filter, Globe2, LocateFixed, MapPin, Menu, Orbit, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Telescope } from 'lucide-react';
 import NotFound from '@/pages/not-found';
+import { useScrollDismiss } from '@/hooks/use-scroll-dismiss';
 import './index.css';
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 20_000, retry: 1 } } });
@@ -103,6 +104,10 @@ function AppFrame() {
   });
   const [showLocation, setShowLocation] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
+  useScrollDismiss(showLocation || mobileMenu, () => {
+    setShowLocation(false);
+    setMobileMenu(false);
+  });
   const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey(), refetchInterval: 300_000, refetchIntervalInBackground: false } });
   const sky = useGetSkySnapshot({ location: submittedLocation }, { query: { queryKey: getGetSkySnapshotQueryKey({ location: submittedLocation }), enabled: Boolean(submittedLocation), refetchInterval: 300_000, refetchIntervalInBackground: false } });
   const snapshot = sky.data;
